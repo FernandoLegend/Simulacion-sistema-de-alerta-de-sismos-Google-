@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Alertas de Terremotos de Google (Simulación 3D)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;600&display=swap');
+
+        body {
+            font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: #0b0f19;
+            color: #e2e8f0;
+            overflow: hidden;
+            margin: 0;
+            user-select: none;
+        }
+
+        /* Glassmorphism Google Style */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .glass-card {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Custom Sliders */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            box-shadow: 0 0 10px #38bdf8;
+            transition: all 0.15s ease;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.25);
+            background: #60a5fa;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        /* Pulse Animations */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 0.4; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .pulse-active {
+            animation: pulse-ring 1.5s infinite ease-in-out;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="w-screen h-screen relative flex">
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Overlay Layout -->
+    <div class="relative z-10 w-full h-full pointer-events-none flex flex-col justify-between p-4 md:p-6 overflow-hidden">
+        
+        <!-- Header & Realtime Alert Banner -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            
+            <!-- Logo & Title -->
+            <div class="glass-panel p-4 rounded-2xl pointer-events-auto flex items-center space-x-3.5 border-l-4 border-l-blue-500">
+                <div class="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-400 border border-blue-400/30">
+                    <i class="fa-solid fa-mobile-screen-button text-xl"></i>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <span class="font-bold text-base text-white">Google</span>
+                        <span class="px-2 py-0.5 text-[10px] uppercase tracking-wider font-semibold bg-blue-500/20 text-blue-300 rounded-full border border-blue-500/30">Android System</span>
+                    </div>
+                    <h1 class="text-xs text-slate-300 font-medium">Sistema de Alertas Tempranas de Terremotos</h1>
+                </div>
+            </div>
+
+            <!-- Server Status & Stats Banner -->
+            <div class="glass-panel px-5 py-3 rounded-2xl pointer-events-auto flex items-center space-x-6 text-xs">
+                <div class="flex items-center space-x-3">
+                    <div id="server-status-dot" class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></div>
+                    <div>
+                        <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Centro de Datos</div>
+                        <div id="server-status-text" class="text-white font-semibold">Monitoreando Tectónica</div>
+                    </div>
+                </div>
+
+                <div class="h-8 w-px bg-slate-700/80"></div>
+
+                <div>
+                    <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Detecciones P</div>
+                    <div id="stat-detections" class="text-amber-400 font-mono text-sm font-bold">0 Dispositivos</div>
+                </div>
+
+                <div class="h-8 w-px bg-slate-700/80"></div>
+
+                <div>
+                    <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Tiempo de Aviso S</div>
+                    <div id="stat-lead-time" class="text-cyan-400 font-mono text-sm font-bold">-- s</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Warning Display (Visible when Alert Triggered) -->
+        <div id="alert-banner" class="self-center glass-panel px-6 py-3 rounded-full border border-red-500/50 bg-red-950/40 text-red-200 hidden pointer-events-auto flex items-center space-x-4 shadow-2xl shadow-red-900/40 animate-bounce">
+            <div class="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center font-bold">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <div>
+                <div class="font-bold text-sm text-white">¡ALERTA DE SISMO ENVIADA!</div>
+                <div class="text-xs text-red-300">Onda S destructiva en camino. Prepárate para el impacto.</div>
+            </div>
+        </div>
+
+        <!-- Bottom Row: Controls & Explanation Steps -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end pointer-events-auto">
+            
+            <!-- Left Side: Controls Panel -->
+            <div class="lg:col-span-7 glass-panel p-4 md:p-5 rounded-3xl space-y-4">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-700/60">
+                    <span class="text-xs font-bold text-slate-200 flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-blue-400"></i> Parámetros de la Simulación
+                    </span>
+                    <span class="text-[11px] text-slate-400">Haz clic en la cuadrícula para un epicentro manual</span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                    <!-- Richter Magnitude -->
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between text-slate-300">
+                            <span>Magnitud:</span>
+                            <span id="val-mag" class="font-mono text-amber-400 font-bold">6.8 Mw</span>
+                        </div>
+                        <input type="range" id="slider-mag" min="4.5" max="8.5" step="0.1" value="6.8" class="w-full">
+                    </div>
+
+                    <!-- Depth -->
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between text-slate-300">
+                            <span>Profundidad:</span>
+                            <span id="val-depth" class="font-mono text-cyan-400 font-bold">15 km</span>
+                        </div>
+                        <input type="range" id="slider-depth" min="5" max="50" step="1" value="15" class="w-full">
+                    </div>
+
+                    <!-- Density -->
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between text-slate-300">
+                            <span>Teléfonos:</span>
+                            <span id="val-density" class="font-mono text-emerald-400 font-bold">35</span>
+                        </div>
+                        <input type="range" id="slider-density" min="12" max="60" step="4" value="35" class="w-full">
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex flex-wrap gap-2.5 pt-1">
+                    <button id="btn-simulate" class="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-500/25 transition flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-bolt"></i>
+                        <span>Simular Terremoto</span>
+                    </button>
+
+                    <button id="btn-reset" class="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700 transition flex items-center justify-center space-x-1.5">
+                        <i class="fa-solid fa-rotate-right"></i>
+                        <span>Reiniciar</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Side: Educational Legend / Process Steps -->
+            <div class="lg:col-span-5 glass-panel p-4 rounded-3xl space-y-2 text-xs">
+                <div class="font-bold text-slate-200 text-xs mb-1 flex items-center space-x-2">
+                    <i class="fa-solid fa-circle-info text-blue-400"></i>
+                    <span>¿Cómo funciona el Sistema de Google?</span>
+                </div>
+
+                <div class="space-y-2">
+                    <!-- Step 1 -->
+                    <div id="step-1" class="glass-card p-2 rounded-xl flex items-start space-x-2.5 transition border-l-2 border-slate-600">
+                        <span class="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">1</span>
+                        <div>
+                            <span class="font-semibold text-slate-200">Detección Onda P:</span>
+                            <span class="text-slate-400 text-[11px] block">Los acelerómetros miden la primera onda no destructiva (rápida).</span>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div id="step-2" class="glass-card p-2 rounded-xl flex items-start space-x-2.5 transition border-l-2 border-slate-600">
+                        <span class="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">2</span>
+                        <div>
+                            <span class="font-semibold text-slate-200">Telemetría a la Velocidad de la Luz:</span>
+                            <span class="text-slate-400 text-[11px] block">Los móviles envían señal instantánea al servidor central.</span>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div id="step-3" class="glass-card p-2 rounded-xl flex items-start space-x-2.5 transition border-l-2 border-slate-600">
+                        <span class="w-5 h-5 rounded-full bg-red-500/20 text-red-400 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">3</span>
+                        <div>
+                            <span class="font-semibold text-slate-200">Alerta Masiva Temprana:</span>
+                            <span class="text-slate-400 text-[11px] block">Google triangula el epicentro y envía alerta antes de la Onda S destructiva.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- THREE.JS SCENE SETUP ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x080d1a);
+        scene.fog = new THREE.FogExp2(0x080d1a, 0.012);
+
+        // Isometric Orthographic Camera setup
+        const aspect = window.innerWidth / window.innerHeight;
+        const d = 35;
+        const camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+        camera.position.set(45, 40, 45);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2.2;
+        controls.minZoom = 0.5;
+        controls.maxZoom = 2;
+
+        // --- LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0x1e293b, 1.8);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
+        dirLight.position.set(30, 50, 20);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 150;
+        const dSize = 40;
+        dirLight.shadow.camera.left = -dSize;
+        dirLight.shadow.camera.right = dSize;
+        dirLight.shadow.camera.top = dSize;
+        dirLight.shadow.camera.bottom = -dSize;
+        scene.add(dirLight);
+
+        const pointLight = new THREE.PointLight(0x0284c7, 2, 80);
+        pointLight.position.set(0, 15, 0);
+        scene.add(pointLight);
+
+        // --- SIMULATION PARAMETERS ---
+        const config = {
+            magnitude: 6.8,
+            depth: 15,
+            density: 35,
+            pWaveSpeed: 0.35,  // Fast compression wave
+            sWaveSpeed: 0.18,  // Slow destructive transverse wave
+        };
+
+        // --- TERRAIN / GRID ---
+        const gridSize = 50;
+        const gridSegments = 80;
+        const planeGeo = new THREE.PlaneGeometry(gridSize, gridSize, gridSegments, gridSegments);
+        planeGeo.rotateX(-Math.PI / 2);
+
+        // Shader Material for Terrain Dynamic Waves
+        const terrainMat = new THREE.MeshStandardMaterial({
+            color: 0x0f172a,
+            roughness: 0.6,
+            metalness: 0.2,
+            wireframe: false,
+            flatShading: true
+        });
+
+        const terrain = new THREE.Mesh(planeGeo, terrainMat);
+        terrain.receiveShadow = true;
+        scene.add(terrain);
+
+        // Grid Overlay
+        const gridHelper = new THREE.GridHelper(gridSize, 40, 0x0284c7, 0x1e293b);
+        gridHelper.position.y = 0.05;
+        scene.add(gridHelper);
+
+        // Base Pedestal Platform
+        const baseGeo = new THREE.BoxGeometry(gridSize, 2, gridSize);
+        const baseMat = new THREE.MeshStandardMaterial({ color: 0x030712, roughness: 0.9 });
+        const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+        baseMesh.position.y = -1.01;
+        scene.add(baseMesh);
+
+        // --- GOOGLE CLOUD SERVER NODE (CENTER FLYING ORB) ---
+        const serverGroup = new THREE.Group();
+        serverGroup.position.set(0, 18, 0);
+        scene.add(serverGroup);
+
+        const serverCoreGeo = new THREE.IcosahedronGeometry(1.5, 2);
+        const serverCoreMat = new THREE.MeshStandardMaterial({
+            color: 0x38bdf8,
+            emissive: 0x0284c7,
+            emissiveIntensity: 0.8,
+            wireframe: true
+        });
+        const serverCore = new THREE.Mesh(serverCoreGeo, serverCoreMat);
+        serverGroup.add(serverCore);
+
+        const ringGeo = new THREE.RingGeometry(2.2, 2.5, 32);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.rotateX(Math.PI / 2);
+        serverGroup.add(ringMesh);
+
+        // Server Light Pillar
+        const pillarGeo = new THREE.CylinderGeometry(0.1, 0.1, 18, 16);
+        const pillarMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.15 });
+        const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+        pillar.position.y = -9;
+        serverGroup.add(pillar);
+
+        // --- WAVE RINGS 3D VISUALIZERS ---
+        // P-Wave Visual Ring (Yellow / Cyan)
+        const pWaveRingGeo = new THREE.RingGeometry(0.1, 0.4, 64);
+        pWaveRingGeo.rotateX(-Math.PI / 2);
+        const pWaveMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0 });
+        const pWaveMesh = new THREE.Mesh(pWaveRingGeo, pWaveMat);
+        pWaveMesh.position.y = 0.1;
+        scene.add(pWaveMesh);
+
+        // S-Wave Visual Ring (Red / Destructive)
+        const sWaveRingGeo = new THREE.RingGeometry(0.1, 0.6, 64);
+        sWaveRingGeo.rotateX(-Math.PI / 2);
+        const sWaveMat = new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide, transparent: true, opacity: 0 });
+        const sWaveMesh = new THREE.Mesh(sWaveRingGeo, sWaveMat);
+        sWaveMesh.position.y = 0.12;
+        scene.add(sWaveMesh);
+
+        // Epicenter Marker Icon
+        const epicenterGeo = new THREE.SphereGeometry(0.6, 16, 16);
+        const epicenterMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+        const epicenterMesh = new THREE.Mesh(epicenterGeo, epicenterMat);
+        epicenterMesh.visible = false;
+        scene.add(epicenterMesh);
+
+        // --- SMARTPHONES & NETWORK NODES ---
+        let smartphones = [];
+        let telemetryBeams = [];
+
+        class Smartphone {
+            constructor(x, z) {
+                this.x = x;
+                this.z = z;
+                this.baseY = 0.3;
+                this.y = this.baseY;
+                this.status = 'NORMAL'; // NORMAL -> DETECTED_P -> ALERTED_S
+                this.pDetected = false;
+                this.sDetected = false;
+
+                this.group = new THREE.Group();
+                this.group.position.set(x, this.baseY, z);
+
+                // Phone Body
+                const bodyGeo = new THREE.BoxGeometry(0.6, 1.1, 0.08);
+                this.bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3 });
+                const body = new THREE.Mesh(bodyGeo, this.bodyMat);
+                body.castShadow = true;
+                this.group.add(body);
+
+                // Phone Screen
+                const screenGeo = new THREE.PlaneGeometry(0.5, 0.95);
+                this.screenMat = new THREE.MeshBasicMaterial({ color: 0x10b981 }); // Standby Green
+                const screen = new THREE.Mesh(screenGeo, this.screenMat);
+                screen.position.z = 0.045;
+                this.group.add(screen);
+
+                // Phone Stand / Floating Pin
+                this.group.rotation.x = -Math.PI / 3; // Angled display for isometric viewing
+                this.group.rotation.z = (Math.random() - 0.5) * 0.2;
+
+                scene.add(this.group);
+            }
+
+            setStatus(newStatus) {
+                this.status = newStatus;
+                if (newStatus === 'NORMAL') {
+                    this.screenMat.color.setHex(0x10b981); // Green Standby
+                } else if (newStatus === 'DETECTED_P') {
+                    this.screenMat.color.setHex(0xf59e0b); // Amber Detection
+                } else if (newStatus === 'ALERTED') {
+                    this.screenMat.color.setHex(0xef4444); // Red Warning Alert
+                }
+            }
+
+            update(elevation, quakeActive) {
+                // Update position with seismic ground displacement
+                this.group.position.y = this.baseY + elevation;
+
+                if (quakeActive && elevation !== 0) {
+                    // Shake motion
+                    this.group.rotation.y = Math.sin(Date.now() * 0.05) * 0.15;
+                } else {
+                    this.group.rotation.y = 0;
+                }
+            }
+
+            destroy() {
+                scene.remove(this.group);
+            }
+        }
+
+        function spawnSmartphones() {
+            smartphones.forEach(sp => sp.destroy());
+            smartphones = [];
+
+            const count = config.density;
+            const border = 20;
+
+            for (let i = 0; i < count; i++) {
+                const rx = (Math.random() - 0.5) * border * 2;
+                const rz = (Math.random() - 0.5) * border * 2;
+                // Avoid placing directly at server center
+                if (Math.hypot(rx, rz) < 3) continue;
+
+                smartphones.push(new Smartphone(rx, rz));
+            }
+            document.getElementById('val-density').innerText = count;
+        }
+
+        // --- TELEMETRY DATA BEAMS ---
+        function createTelemetryBeam(fromX, fromZ) {
+            const points = [];
+            points.push(new THREE.Vector3(fromX, 0.5, fromZ));
+            points.push(new THREE.Vector3(0, 18, 0)); // Server core position
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.9, linewidth: 2 });
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+
+            telemetryBeams.push({ mesh: line, createdAt: performance.now() });
+        }
+
+        function updateTelemetryBeams() {
+            const now = performance.now();
+            for (let i = telemetryBeams.length - 1; i >= 0; i--) {
+                const beam = telemetryBeams[i];
+                const age = now - beam.createdAt;
+                if (age > 800) { // Beam disappears after 800ms
+                    scene.remove(beam.mesh);
+                    telemetryBeams.splice(i, 1);
+                } else {
+                    beam.mesh.material.opacity = 1 - (age / 800);
+                }
+            }
+        }
+
+        // --- EARTHQUAKE SIMULATION STATE ---
+        let earthquake = {
+            active: false,
+            epicenter: new THREE.Vector3(0, 0, 0),
+            pRadius: 0,
+            sRadius: 0,
+            startTime: 0,
+            pDetectedCount: 0,
+            alertBroadcasted: false,
+            serverAlertTime: 0
+        };
+
+        function triggerEarthquake(x, z) {
+            earthquake.active = true;
+            earthquake.epicenter.set(x, 0, z);
+            earthquake.pRadius = 0;
+            earthquake.sRadius = 0;
+            earthquake.startTime = performance.now();
+            earthquake.pDetectedCount = 0;
+            earthquake.alertBroadcasted = false;
+
+            // Reset smartphones
+            smartphones.forEach(sp => {
+                sp.setStatus('NORMAL');
+                sp.pDetected = false;
+                sp.sDetected = false;
+            });
+
+            // Epicenter visualization
+            epicenterMesh.position.set(x, 0.2, z);
+            epicenterMesh.visible = true;
+
+            // Step UI updates
+            highlightStep(1);
+            document.getElementById('server-status-text').innerText = "Onda P Detectada!";
+            document.getElementById('server-status-dot').className = "w-3 h-3 rounded-full bg-amber-400 animate-ping";
+            document.getElementById('alert-banner').classList.add('hidden');
+        }
+
+        function resetSimulation() {
+            earthquake.active = false;
+            pWaveMat.opacity = 0;
+            sWaveMat.opacity = 0;
+            epicenterMesh.visible = false;
+            smartphones.forEach(sp => sp.setStatus('NORMAL'));
+
+            document.getElementById('server-status-text').innerText = "Monitoreando Tectónica";
+            document.getElementById('server-status-dot').className = "w-3 h-3 rounded-full bg-emerald-400 animate-pulse";
+            document.getElementById('stat-detections').innerText = "0 Dispositivos";
+            document.getElementById('stat-lead-time').innerText = "-- s";
+            document.getElementById('alert-banner').classList.add('hidden');
+
+            resetSteps();
+        }
+
+        // --- STEP HIGHLIGHT HELPER ---
+        function highlightStep(stepNum) {
+            [1, 2, 3].forEach(num => {
+                const el = document.getElementById(`step-${num}`);
+                if (num === stepNum) {
+                    el.classList.add('border-l-blue-400', 'bg-blue-500/10');
+                    el.classList.remove('border-slate-600');
+                } else {
+                    el.classList.remove('border-l-blue-400', 'bg-blue-500/10');
+                    el.classList.add('border-slate-600');
+                }
+            });
+        }
+
+        function resetSteps() {
+            [1, 2, 3].forEach(num => {
+                const el = document.getElementById(`step-${num}`);
+                el.classList.remove('border-l-blue-400', 'bg-blue-500/10');
+                el.classList.add('border-slate-600');
+            });
+        }
+
+        // --- RAYCASTING FOR MOUSE CLICK EPICENTER ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        window.addEventListener('pointerdown', (e) => {
+            // Ignore if clicking UI
+            if (e.target.closest('.pointer-events-auto')) return;
+
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(terrain);
+
+            if (intersects.length > 0) {
+                const point = intersects[0].point;
+                triggerEarthquake(point.x, point.z);
+            }
+        });
+
+        // --- TERRAIN DEFORMATION & PHYSICS UPDATE ---
+        function updateTerrainAndWaves() {
+            if (!earthquake.active) return;
+
+            const now = performance.now();
+            const elapsed = (now - earthquake.startTime) / 1000;
+
+            // Expand Radii based on speeds
+            earthquake.pRadius = elapsed * config.pWaveSpeed * 30;
+            earthquake.sRadius = elapsed * config.sWaveSpeed * 30;
+
+            // Visual Wave Rings
+            pWaveMesh.position.set(earthquake.epicenter.x, 0.1, earthquake.epicenter.z);
+            pWaveMesh.scale.set(earthquake.pRadius * 2.5, earthquake.pRadius * 2.5, 1);
+            pWaveMat.opacity = Math.max(0, 0.8 - (earthquake.pRadius / 35));
+
+            sWaveMesh.position.set(earthquake.epicenter.x, 0.12, earthquake.epicenter.z);
+            sWaveMesh.scale.set(earthquake.sRadius * 2.5, earthquake.sRadius * 2.5, 1);
+            sWaveMat.opacity = Math.max(0, 0.9 - (earthquake.sRadius / 35));
+
+            // Deformation of Terrain Vertices
+            const posAttr = planeGeo.attributes.position;
+            const ampFactor = (config.magnitude - 3) * 0.25;
+
+            for (let i = 0; i < posAttr.count; i++) {
+                const vx = posAttr.getX(i);
+                const vz = posAttr.getZ(i);
+
+                const dist = Math.hypot(vx - earthquake.epicenter.x, vz - earthquake.epicenter.z);
+
+                let elevation = 0;
+
+                // P-Wave Displacement (High frequency, lower amplitude)
+                const pDist = Math.abs(dist - earthquake.pRadius);
+                if (pDist < 3) {
+                    elevation += Math.sin(pDist * 2) * 0.2 * ampFactor;
+                }
+
+                // S-Wave Displacement (High amplitude, destructive shake)
+                const sDist = Math.abs(dist - earthquake.sRadius);
+                if (sDist < 4) {
+                    elevation += Math.sin(sDist * 1.5) * 0.8 * ampFactor;
+                }
+
+                posAttr.setY(i, elevation);
+            }
+            posAttr.needsUpdate = true;
+            planeGeo.computeVertexNormals();
+
+            // Update Smartphone Detections & Telemetry
+            smartphones.forEach(sp => {
+                const distToEpicenter = Math.hypot(sp.x - earthquake.epicenter.x, sp.z - earthquake.epicenter.z);
+
+                // Check P-Wave Hit
+                if (!sp.pDetected && distToEpicenter <= earthquake.pRadius) {
+                    sp.pDetected = true;
+                    sp.setStatus('DETECTED_P');
+                    earthquake.pDetectedCount++;
+
+                    // Send telemetry beam to server
+                    createTelemetryBeam(sp.x, sp.z);
+
+                    document.getElementById('stat-detections').innerText = `${earthquake.pDetectedCount} Dispositivos`;
+
+                    // Trigger Server Broadcast once enough nodes detect P-Wave
+                    if (earthquake.pDetectedCount >= 3 && !earthquake.alertBroadcasted) {
+                        earthquake.alertBroadcasted = true;
+                        earthquake.serverAlertTime = now;
+
+                        highlightStep(2);
+
+                        setTimeout(() => {
+                            // Server triggers early alert to all devices ahead of S-wave
+                            highlightStep(3);
+                            document.getElementById('alert-banner').classList.remove('hidden');
+                            document.getElementById('server-status-text').innerText = "¡ALERTA MASIVA EMITIDA!";
+                            document.getElementById('server-status-dot').className = "w-3 h-3 rounded-full bg-red-500 animate-ping";
+
+                            smartphones.forEach(s => {
+                                if (!s.sDetected) {
+                                    s.setStatus('ALERTED');
+                                }
+                            });
+                        }, 250);
+                    }
+                }
+
+                // Calculate vertical elevation for phone shake
+                let phoneElevation = 0;
+                const pDist = Math.abs(distToEpicenter - earthquake.pRadius);
+                if (pDist < 3) phoneElevation += Math.sin(pDist * 2) * 0.2 * ampFactor;
+
+                const sDist = Math.abs(distToEpicenter - earthquake.sRadius);
+                if (sDist < 4) phoneElevation += Math.sin(sDist * 1.5) * 0.8 * ampFactor;
+
+                sp.update(phoneElevation, earthquake.active);
+            });
+
+            // Calculate Lead Time (Seconds before S-wave reaches outer nodes)
+            if (earthquake.alertBroadcasted) {
+                const remainingDistance = 25 - earthquake.sRadius;
+                const leadTimeSeconds = Math.max(0, (remainingDistance / (config.sWaveSpeed * 30))).toFixed(1);
+                document.getElementById('stat-lead-time').innerText = `${leadTimeSeconds} s`;
+            }
+
+            // Stop earthquake after waves propagate out
+            if (earthquake.pRadius > 45 && earthquake.sRadius > 35) {
+                earthquake.active = false;
+            }
+        }
+
+        // --- ANIMATION LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Server Core Floating Animation
+            serverGroup.position.y = 18 + Math.sin(Date.now() * 0.002) * 0.5;
+            serverCore.rotation.y += 0.01;
+            ringMesh.rotation.z -= 0.005;
+
+            updateTerrainAndWaves();
+            updateTelemetryBeams();
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- UI BINDINGS ---
+        function initUI() {
+            const bindSlider = (id, targetKey, displayId, unit) => {
+                const slider = document.getElementById(id);
+                slider.addEventListener('input', (e) => {
+                    config[targetKey] = parseFloat(e.target.value);
+                    document.getElementById(displayId).innerText = `${config[targetKey]} ${unit}`;
+                    if (targetKey === 'density') {
+                        spawnSmartphones();
+                    }
+                });
+            };
+
+            bindSlider('slider-mag', 'magnitude', 'val-mag', 'Mw');
+            bindSlider('slider-depth', 'depth', 'val-depth', 'km');
+            bindSlider('slider-density', 'density', 'val-density', '');
+
+            document.getElementById('btn-simulate').addEventListener('click', () => {
+                // Random epicenter within central zone
+                const rx = (Math.random() - 0.5) * 16;
+                const rz = (Math.random() - 0.5) * 16;
+                triggerEarthquake(rx, rz);
+            });
+
+            document.getElementById('btn-reset').addEventListener('click', resetSimulation);
+
+            window.addEventListener('resize', () => {
+                const aspect = window.innerWidth / window.innerHeight;
+                camera.left = -d * aspect;
+                camera.right = d * aspect;
+                camera.top = d;
+                camera.bottom = -d;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        // --- INIT ---
+        window.onload = () => {
+            spawnSmartphones();
+            initUI();
+            animate();
+
+            // Auto trigger initial demo earthquake after load
+            setTimeout(() => {
+                triggerEarthquake(-4, -2);
+            }, 800);
+        };
+    </script>
+</body>
+</html>
